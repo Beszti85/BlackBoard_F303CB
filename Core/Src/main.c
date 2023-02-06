@@ -23,7 +23,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "flash.h"
+#include "nrf24l01.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -64,6 +65,22 @@ const osThreadAttr_t defaultTask_attributes = {
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
+
+NRF24L01_Handler_t RFHandler =
+{
+  .ptrHSpi = &hspi1,
+  .portCS  = CS_RF_GPIO_Port,
+  .pinCS   = CS_RF_Pin,
+  .portCE  = RF_CE_GPIO_Port,
+  .pinCE   = RF_CE_Pin
+};
+
+FLASH_Handler_t FlashHandler =
+{
+  .ptrHSpi = &hspi1,
+  .portCS  = CS_FLASH_GPIO_Port,
+  .pinCS   = CS_FLASH_Pin
+};
 
 /* USER CODE END PV */
 
@@ -120,7 +137,8 @@ int main(void)
   MX_ADC1_Init();
   MX_ADC4_Init();
   /* USER CODE BEGIN 2 */
-
+  FLASH_Identification(&FlashHandler);
+  NRF24L01_Init(&RFHandler);
   /* USER CODE END 2 */
 
   /* Init scheduler */
