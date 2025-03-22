@@ -51,6 +51,10 @@
   #include <stdint.h>
   extern uint32_t SystemCoreClock;
 #endif
+#ifndef CMSIS_device_header
+#define CMSIS_device_header "stm32f3xx.h"
+#endif /* CMSIS_device_header */
+
 #define configUSE_PREEMPTION                     1
 #define configSUPPORT_STATIC_ALLOCATION          1
 #define configSUPPORT_DYNAMIC_ALLOCATION         1
@@ -139,7 +143,6 @@ standard names. */
 
 /* IMPORTANT: This define is commented when used with STM32Cube firmware, when the timebase source is SysTick,
               to prevent overwriting SysTick_Handler defined within STM32Cube HAL */
-
 #define xPortSysTickHandler SysTick_Handler
 
 /* USER CODE BEGIN Defines */
