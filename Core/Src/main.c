@@ -25,6 +25,7 @@
 /* USER CODE BEGIN Includes */
 #include "flash.h"
 #include "nrf24l01.h"
+#include "esp8266_at.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -38,7 +39,10 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
+#define ESP_UART_DMA_BUFFER_SIZE 512u
+#define ESP_RX_BUFFER_SIZE       2048u
 
+#define ESP_EVENT_FLAG_MASK   0x00000001uL
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -83,6 +87,15 @@ FLASH_Handler_t FlashHandler =
   .pinCS   = CS_FLASH_Pin
 };
 
+char EspDmaBuffer[ESP_UART_DMA_BUFFER_SIZE];
+char EspRxBuffer[ESP_RX_BUFFER_SIZE];
+
+uint16_t oldPos = 0;
+uint16_t newPos = 0;
+
+bool  ESP_ResponseOK = 0u;
+bool  ESP_MessageReceived = false;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -102,7 +115,55 @@ void Task10ms(void *argument);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
+{
+  ESP_ResponseOK = false;
+  if (huart->Instance == USART1)
+  {
+    /* Check if it is an OK: dont need to copy, just set the acknowledge flag  */
+    if( strncmp(EspDmaBuffer, "\r\nOK\r\n", 6) )
+    {
+      ESP_ResponseOK = true;
+    }
+    else
+    {
+      oldPos = newPos;  // Update the last position before copying new data
 
+      /* If the data in large and it is about to exceed the buffer size, we have to route it to the start of the buffer
+       * This is to maintain the circular buffer
+       * The old data in the main buffer will be overlapped
+       */
+      if (oldPos+Size > ESP_RX_BUFFER_SIZE)  // If the current position + new data size is greater than the main buffer
+      {
+        uint16_t datatocopy = ESP_RX_BUFFER_SIZE-oldPos;  // find out how much space is left in the main buffer
+        memcpy ((uint8_t *)EspRxBuffer+oldPos, EspDmaBuffer, datatocopy);  // copy data in that remaining space
+
+        oldPos = 0;  // point to the start of the buffer
+        memcpy ((uint8_t *)EspRxBuffer, (uint8_t *)EspDmaBuffer+datatocopy, (Size-datatocopy));  // copy the remaining data
+        newPos = (Size-datatocopy);  // update the position
+      }
+
+      /* if the current position + new data size is less than the main buffer
+       * we will simply copy the data into the buffer and update the position
+       */
+      else
+      {
+        memcpy ((uint8_t *)EspRxBuffer+oldPos, EspDmaBuffer, Size);
+        newPos = Size+oldPos;
+      }
+    }
+
+    /* start the DMA again */
+    HAL_UARTEx_ReceiveToIdle_DMA(&huart1, (uint8_t *) EspDmaBuffer, ESP_UART_DMA_BUFFER_SIZE);
+    __HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
+
+    if( ESP_ResponseOK == false )
+    {
+      ESP_MessageReceived = true;
+      osEventFlagsSet(EventComTaskHandle, ESP_EVENT_FLAG_MASK);
+    }
+  }
+}
 /* USER CODE END 0 */
 
 /**
@@ -142,6 +203,12 @@ int main(void)
   /* USER CODE BEGIN 2 */
   FLASH_Identification(&FlashHandler);
   NRF24L01_Init(&RFHandler);
+#if (USE_ESP8266 == 1)
+  ESP8266_Init(&huart1, EspRxBuffer);
+  HAL_Delay(10u);
+  HAL_UARTEx_ReceiveToIdle_DMA(&huart1, EspDmaBuffer, ESP_UART_DMA_BUFFER_SIZE);
+  __HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
+#endif
   /* USER CODE END 2 */
 
   /* Init scheduler */
