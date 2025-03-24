@@ -29,6 +29,8 @@
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
+typedef StaticTask_t osStaticThreadDef_t;
+typedef StaticEventGroup_t osStaticEventGroupDef_t;
 /* USER CODE BEGIN PTD */
 
 /* USER CODE END PTD */
@@ -39,6 +41,8 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
+#define USE_ESP8266 1
+
 #define ESP_UART_DMA_BUFFER_SIZE 512u
 #define ESP_RX_BUFFER_SIZE       2048u
 
@@ -54,20 +58,51 @@ I2C_HandleTypeDef hi2c1;
 SPI_HandleTypeDef hspi1;
 
 UART_HandleTypeDef huart2;
+DMA_HandleTypeDef hdma_usart2_rx;
 
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
+uint32_t defaultTaskBuffer[ 128 ];
+osStaticThreadDef_t defaultTaskControlBlock;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 128 * 4,
+  .cb_mem = &defaultTaskControlBlock,
+  .cb_size = sizeof(defaultTaskControlBlock),
+  .stack_mem = &defaultTaskBuffer[0],
+  .stack_size = sizeof(defaultTaskBuffer),
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for myTask02 */
 osThreadId_t myTask02Handle;
+uint32_t myTask02Buffer[ 128 ];
+osStaticThreadDef_t myTask02ControlBlock;
 const osThreadAttr_t myTask02_attributes = {
   .name = "myTask02",
-  .stack_size = 128 * 4,
+  .cb_mem = &myTask02ControlBlock,
+  .cb_size = sizeof(myTask02ControlBlock),
+  .stack_mem = &myTask02Buffer[0],
+  .stack_size = sizeof(myTask02Buffer),
   .priority = (osPriority_t) osPriorityLow,
+};
+/* Definitions for Task_Comm */
+osThreadId_t Task_CommHandle;
+uint32_t myTask03Buffer[ 128 ];
+osStaticThreadDef_t myTask03ControlBlock;
+const osThreadAttr_t Task_Comm_attributes = {
+  .name = "Task_Comm",
+  .cb_mem = &myTask03ControlBlock,
+  .cb_size = sizeof(myTask03ControlBlock),
+  .stack_mem = &myTask03Buffer[0],
+  .stack_size = sizeof(myTask03Buffer),
+  .priority = (osPriority_t) osPriorityLow,
+};
+/* Definitions for EventComTask */
+osEventFlagsId_t EventComTaskHandle;
+osStaticEventGroupDef_t myEvent01ControlBlock;
+const osEventFlagsAttr_t EventComTask_attributes = {
+  .name = "EventComTask",
+  .cb_mem = &myEvent01ControlBlock,
+  .cb_size = sizeof(myEvent01ControlBlock),
 };
 /* USER CODE BEGIN PV */
 
@@ -101,6 +136,7 @@ bool  ESP_MessageReceived = false;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
@@ -108,6 +144,7 @@ static void MX_ADC1_Init(void);
 static void MX_ADC4_Init(void);
 void Task1ms(void *argument);
 void Task10ms(void *argument);
+void CommTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -154,8 +191,8 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
     }
 
     /* start the DMA again */
-    HAL_UARTEx_ReceiveToIdle_DMA(&huart1, (uint8_t *) EspDmaBuffer, ESP_UART_DMA_BUFFER_SIZE);
-    __HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
+    HAL_UARTEx_ReceiveToIdle_DMA(&huart2, (uint8_t *) EspDmaBuffer, ESP_UART_DMA_BUFFER_SIZE);
+    __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
 
     if( ESP_ResponseOK == false )
     {
@@ -195,6 +232,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_SPI1_Init();
   MX_USART2_UART_Init();
   MX_I2C1_Init();
@@ -204,10 +242,10 @@ int main(void)
   FLASH_Identification(&FlashHandler);
   NRF24L01_Init(&RFHandler);
 #if (USE_ESP8266 == 1)
-  ESP8266_Init(&huart1, EspRxBuffer);
+  ESP8266_Init(&huart2, EspRxBuffer);
   HAL_Delay(10u);
-  HAL_UARTEx_ReceiveToIdle_DMA(&huart1, EspDmaBuffer, ESP_UART_DMA_BUFFER_SIZE);
-  __HAL_DMA_DISABLE_IT(&hdma_usart1_rx, DMA_IT_HT);
+  HAL_UARTEx_ReceiveToIdle_DMA(&huart2, EspDmaBuffer, ESP_UART_DMA_BUFFER_SIZE);
+  __HAL_DMA_DISABLE_IT(&hdma_usart2_rx, DMA_IT_HT);
 #endif
   /* USER CODE END 2 */
 
@@ -237,9 +275,16 @@ int main(void)
   /* creation of myTask02 */
   myTask02Handle = osThreadNew(Task10ms, NULL, &myTask02_attributes);
 
+  /* creation of Task_Comm */
+  Task_CommHandle = osThreadNew(CommTask, NULL, &Task_Comm_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
+
+  /* Create the event(s) */
+  /* creation of EventComTask */
+  EventComTaskHandle = osEventFlagsNew(&EventComTask_attributes);
 
   /* USER CODE BEGIN RTOS_EVENTS */
   /* add events, ... */
@@ -561,6 +606,22 @@ static void MX_USART2_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel6_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel6_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel6_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -667,6 +728,24 @@ void Task10ms(void *argument)
     HAL_GPIO_TogglePin(LED_BRD_GPIO_Port, LED_BRD_Pin);
   }
   /* USER CODE END Task10ms */
+}
+
+/* USER CODE BEGIN Header_CommTask */
+/**
+* @brief Function implementing the Task_Comm thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_CommTask */
+void CommTask(void *argument)
+{
+  /* USER CODE BEGIN CommTask */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END CommTask */
 }
 
 /**
