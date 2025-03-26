@@ -740,9 +740,17 @@ void Task10ms(void *argument)
 void CommTask(void *argument)
 {
   /* USER CODE BEGIN CommTask */
+  uint32_t eventFlags = 0u;
   /* Infinite loop */
   for(;;)
   {
+	eventFlags = osEventFlagsWait(EventComTaskHandle, ESP_EVENT_FLAG_MASK, osFlagsWaitAny, osWaitForever);
+    if( eventFlags |= ESP_EVENT_FLAG_MASK )
+    {
+      // Process the incoming data that is not OK
+      ESP8266_AtReportHandler(EspRxBuffer);
+      osEventFlagsClear(EventComTaskHandle, ESP_EVENT_FLAG_MASK);
+    }
     osDelay(1);
   }
   /* USER CODE END CommTask */
