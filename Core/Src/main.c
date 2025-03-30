@@ -131,6 +131,7 @@ uint16_t newPos = 0;
 bool  ESP_ResponseOK = 0u;
 bool  ESP_MessageReceived = false;
 
+uint8_t UsbCdcRxBuffer[128u];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -744,12 +745,26 @@ void CommTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-	eventFlags = osEventFlagsWait(EventComTaskHandle, ESP_EVENT_FLAG_MASK, osFlagsWaitAny, osWaitForever);
-    if( eventFlags |= ESP_EVENT_FLAG_MASK )
+    eventFlags = osEventFlagsWait(EventComTaskHandle, ESP_AT_REPORT_EVENT_FLAG_MASK | ESP_AT_RESPONSE_EVENT_FLAG_MASK | USB_EVENT_FLAG_MASK, osFlagsWaitAny, osWaitForever);
+    if( (eventFlags & ESP_AT_REPORT_EVENT_FLAG_MASK) == ESP_AT_REPORT_EVENT_FLAG_MASK )
     {
       // Process the incoming data that is not OK
       ESP8266_AtReportHandler(EspRxBuffer);
-      osEventFlagsClear(EventComTaskHandle, ESP_EVENT_FLAG_MASK);
+      osEventFlagsClear(EventComTaskHandle, ESP_AT_REPORT_EVENT_FLAG_MASK);
+    }
+    else if( (eventFlags & ESP_AT_RESPONSE_EVENT_FLAG_MASK) == ESP_AT_RESPONSE_EVENT_FLAG_MASK )
+    {
+      // Process the incoming data that is not OK
+      ESP8266_AtResponseHandler(EspRxBuffer);
+      osEventFlagsClear(EventComTaskHandle, ESP_AT_RESPONSE_EVENT_FLAG_MASK);
+    }
+    else if( (eventFlags & USB_EVENT_FLAG_MASK) == USB_EVENT_FLAG_MASK )
+    {
+      // Process the incoming data that is not OK
+      //PCUART_ProcessRxCmd(UsbCdcRxBuffer);
+      // clear buffer
+      memset(UsbCdcRxBuffer, 0, sizeof(UsbCdcRxBuffer));
+      osEventFlagsClear(EventComTaskHandle, USB_EVENT_FLAG_MASK);
     }
     osDelay(1);
   }

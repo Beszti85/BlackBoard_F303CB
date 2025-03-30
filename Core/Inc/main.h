@@ -57,6 +57,9 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define ESP_AT_RESPONSE_EVENT_FLAG_MASK 0x00000002uL
+#define USB_EVENT_FLAG_MASK 0x00000004uL
+#define ESP_AT_REPORT_EVENT_FLAG_MASK 0x00000001uL
 #define CS_FLASH_Pin GPIO_PIN_13
 #define CS_FLASH_GPIO_Port GPIOC
 #define LED_BRD_Pin GPIO_PIN_1
